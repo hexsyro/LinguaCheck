@@ -1,0 +1,11 @@
+id,text,model,model_language,sentiment_score
+1,"Esto es lo peor que he comprado y no lo recomiendo para nada",vader,,-0.82
+2,"This is the best product I have ever used and it keeps working",vader,,0.91
+3,"この商品は本当に素晴らしいです",vader,,0.4
+4,"Das ist wirklich ein sehr gutes Produkt und ich empfehle es weiter",custom-bert,en,0.7
+5,"Le service est exceptionnel et l'équipe est très professionnelle",custom-bert,fr,0.6
+6,"Этот продукт действительно ужасен и я его ненавижу",vader,,-0.9
+7,"Mae cynnyrch yn dda iawn ac rwyf wrth fy modd",,,
+8,"The product is good. El producto es bueno.",textblob,,0.5
+9,"هذا المنتج رائع جدا",custom-bert,en,0.8
+10,"xkcd qqq zzz www",vader,,0.1

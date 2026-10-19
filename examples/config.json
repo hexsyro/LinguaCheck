@@ -1,0 +1,3 @@
+{
+  "weak_models": ["vader", "afinn", "textblob", "sentiwordnet"]
+}
