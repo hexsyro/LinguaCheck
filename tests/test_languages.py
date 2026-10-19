@@ -69,7 +69,7 @@ def test_detect_welsh_low_resource():
 
 
 def test_gibberish_is_low_confidence():
-    code, script, confidence, _runner, _margin = detect_language_scored("xkcd qqq zzz www")
+    _code, script, confidence, _runner, _margin = detect_language_scored("xkcd qqq zzz www")
     assert script == "latin"
     assert confidence < 0.2
 

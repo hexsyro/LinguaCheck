@@ -7,7 +7,6 @@ catch "this text is Spanish but got scored by an English-tuned model".
 
 # RUF001: stopword tables intentionally contain non-Latin glyphs that look like
 # Latin letters (e.g. Cyrillic 'es' vs Latin 'c'); they are correct as-is.
-# ruff: noqa: RUF001
 
 from __future__ import annotations
 
