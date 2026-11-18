@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linguacheck"
-version = "0.1.0"
+version = "0.2.0"
 description = "Catch sentiment scores computed with the wrong language model: language detection, mismatch flags, weak-model warnings, and code-switching detection."
 readme = "README.md"
 license = "MIT"
@@ -36,6 +36,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 
 [tool.ruff]

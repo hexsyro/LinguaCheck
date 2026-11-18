@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from linguacheck import __version__
-from linguacheck.common import SEVERITY_RANK, load_rows
-from linguacheck.logic import LinguaCheckLogic
+from linguacheck.common import SEVERITY_RANK, load_rows, validate_options
+from linguacheck.logic import DEFAULT_MIN_CONFIDENCE, LinguaCheckLogic
 from linguacheck.output import render, worst_severity
 
 TOOL = "linguacheck"
@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="comma-separated model names to treat as known-weak "
         "(default: vader, afinn, textblob, and friends)",
     )
+    parser.add_argument(
+        "--min-confidence",
+        metavar="F",
+        type=float,
+        help=f"minimum detection confidence to trust a row, 0-1 (default: {DEFAULT_MIN_CONFIDENCE})",
+    )
     parser.add_argument("--version", action="version", version=f"{TOOL} {__version__}")
     return parser
 
@@ -64,6 +70,8 @@ def _merge_options(args: argparse.Namespace) -> dict[str, Any]:
         options.update(parsed)
     if args.weak_models is not None:
         options["weak_models"] = [m.strip() for m in args.weak_models.split(",") if m.strip()]
+    if args.min_confidence is not None:
+        options["min_confidence"] = args.min_confidence
     return options
 
 
@@ -73,8 +81,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         options = _merge_options(args)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         print(f"{TOOL}: {exc}", file=sys.stderr)
+        return 2
+    for error in validate_options(options):
+        print(f"{TOOL}: {error}", file=sys.stderr)
         return 2
 
     try:

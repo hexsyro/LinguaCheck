@@ -1,3 +1,4 @@
 {
-  "weak_models": ["vader", "afinn", "textblob", "sentiwordnet"]
+  "weak_models": ["vader", "afinn", "textblob", "sentiwordnet"],
+  "min_confidence": 0.2
 }

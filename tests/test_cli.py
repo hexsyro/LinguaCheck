@@ -100,4 +100,65 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert "linguacheck 0.1.0" in capsys.readouterr().out
+    assert "linguacheck 0.2.0" in capsys.readouterr().out
+
+
+def test_json_output_has_shared_schema_fields(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    assert main([str(path), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["version"] == "0.2.0"
+    assert payload["summary"]["result_schema_version"] == "1.1"
+    assert payload["summary"]["skipped"] is False
+    assert payload["summary"]["skip_reason"] is None
+    assert "language_distribution" in payload["summary"]
+    assert "coverage_matrix" in payload["summary"]
+
+
+def test_min_confidence_flag_gates_rows(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    assert main([str(path), "--min-confidence", "0.95", "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["min_confidence"] == 0.95
+    assert payload["summary"]["checked"] == 3
+    assert payload["summary"]["flagged"] == 0
+    assert payload["summary"]["skipped"] is True
+    assert any("low confidence" in warning for warning in payload["warnings"])
+
+
+def test_min_confidence_from_config(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"min_confidence": 0.95}), encoding="utf-8")
+    assert main([str(path), "--config", str(config), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["min_confidence"] == 0.95
+    assert payload["summary"]["flagged"] == 0
+
+
+def test_explicit_flag_overrides_config_min_confidence(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"min_confidence": 0.95}), encoding="utf-8")
+    assert main([str(path), "--config", str(config), "--min-confidence", "0.1", "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["min_confidence"] == 0.1
+    assert payload["summary"]["flagged"] == 2
+
+
+def test_invalid_config_value_types_exit_2(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    for config_value in ({"weak_models": "vader"}, {"weak_models": 7}, {"min_confidence": "high"}):
+        config = tmp_path / "bad-config.json"
+        config.write_text(json.dumps(config_value), encoding="utf-8")
+        capsys.readouterr()
+        assert main([str(path), "--config", str(config)]) == 2
+        error = capsys.readouterr().err
+        assert "invalid config value" in error
+        assert next(iter(config_value)) in error
+
+
+def test_invalid_cli_min_confidence_exit_2(tmp_path, capsys):
+    path = write_csv(tmp_path, MIXED_CSV)
+    assert main([str(path), "--min-confidence", "1.5"]) == 2
+    assert "min_confidence" in capsys.readouterr().err

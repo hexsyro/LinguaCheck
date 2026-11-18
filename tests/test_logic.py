@@ -147,3 +147,125 @@ def test_weak_model_hits_counted():
     assert result.summary["weak_model_hits"] == 2
     assert result.summary["flagged"] == 2
     assert result.summary["percent_flagged"] == 100.0
+
+
+def test_summary_has_shared_schema_fields():
+    result = logic.run([{"id": "1", "text": SPANISH, "model": "vader"}], {})
+    assert result.status == "success"
+    assert result.summary["result_schema_version"] == "1.1"
+    assert result.summary["skipped"] is False
+    assert result.summary["skip_reason"] is None
+
+
+def test_summary_skipped_when_no_text_rows():
+    result = logic.run([{"id": "1", "score": 0.5}], {})
+    assert result.summary["skipped"] is True
+    assert "text" in result.summary["skip_reason"]
+    assert result.summary["flagged"] == 0
+
+
+def test_summary_skipped_when_all_rows_low_confidence():
+    result = logic.run([{"id": "1", "text": GIBBERISH, "model": "vader"}], {})
+    assert result.summary["checked"] == 1
+    assert result.summary["skipped"] is True
+    assert result.summary["skip_reason"] is not None
+    assert any("low confidence" in warning for warning in result.warnings)
+    assert any("too little evidence" in warning for warning in result.warnings)
+
+
+def test_mismatch_and_code_switching_produce_two_findings():
+    rows = [{
+        "id": "mixed",
+        "text": "The product is good. El producto es bueno.",
+        "model": "vader",
+        "model_language": "es",
+    }]
+    result = logic.run(rows, {})
+    kinds = [finding["metadata"]["finding_kind"] for finding in result.findings]
+    assert kinds == ["language_mismatch", "code_switching"]
+    assert [finding["severity"] for finding in result.findings] == ["high", "medium"]
+    assert result.summary["flagged"] == 1  # one row, two findings
+
+
+def test_weak_model_finding_kind():
+    rows = [{"id": "1", "text": SPANISH, "model": "vader", "model_language": "es"}]
+    result = logic.run(rows, {})
+    assert len(result.findings) == 1
+    assert result.findings[0]["metadata"]["finding_kind"] == "weak_model"
+
+
+def test_language_distribution_summary_and_finding_metadata():
+    rows = [{
+        "id": "mixed",
+        "text": "The product is good. El producto es bueno.",
+        "model": "vader",
+        "model_language": "es",
+    }]
+    result = logic.run(rows, {})
+    entries = [entry for entry in result.summary["language_distribution"] if entry["record_id"] == "mixed"]
+    assert {entry["lang"] for entry in entries} == {"en", "es"}
+    assert all(entry["share"] == 0.5 for entry in entries)
+    assert all(entry["languages"] == ["en", "es"] for entry in entries)
+    assert all(finding["metadata"]["language_distribution"] == {"en": 0.5, "es": 0.5} for finding in result.findings)
+
+
+def test_mixed_language_unscorable_finding_when_no_dominant_share():
+    rows = [{"id": "u1", "text": "the and el la de que", "model": "custom", "model_language": "en"}]
+    result = logic.run(rows, {})
+    kinds = [finding["metadata"]["finding_kind"] for finding in result.findings]
+    assert kinds == ["language_mismatch", "mixed_language_unscorable"]
+    unscorable = result.findings[-1]
+    assert unscorable["severity"] == "medium"
+    assert unscorable["field"] == "language_distribution"
+    assert ">=0.8" in unscorable["message"]
+
+
+def test_min_confidence_option_controls_gate():
+    rows = [{"id": "1", "text": "the and", "model": "vader", "model_language": "es"}]
+    assert logic.run(rows, {}).findings != []
+    strict = logic.run(rows, {"min_confidence": 0.95})
+    assert strict.findings == []
+    assert strict.summary["min_confidence"] == 0.95
+    assert strict.summary["skipped"] is True
+    assert any("low confidence" in warning for warning in strict.warnings)
+
+
+def test_coverage_matrix_actions_and_risk():
+    rows = [
+        {"id": "1", "text": SPANISH, "model": "custom", "model_language": "en"},
+        {"id": "2", "text": JAPANESE, "model": "custom", "model_language": "en"},
+        {"id": "3", "text": WELSH, "model": "custom", "model_language": "en"},
+        {"id": "4", "text": ENGLISH, "model": "custom", "model_language": "en"},
+    ]
+    matrix = {(entry["detected"], entry["assumed"]): entry for entry in logic.run(rows, {}).summary["coverage_matrix"]}
+    assert matrix[("es", "en")] == {
+        "detected": "es", "assumed": "en", "count": 1, "risk": "medium", "action": "reroute",
+    }
+    assert matrix[("ja", "en")]["risk"] == "high"
+    assert matrix[("ja", "en")]["action"] == "translate-then-score"
+    assert matrix[("cy", "en")]["risk"] == "high"
+    assert matrix[("cy", "en")]["action"] == "mark-unscorable"
+    assert matrix[("en", "en")]["action"] == "ok"
+
+
+def test_weak_models_string_is_not_iterated_by_character():
+    rows = [{"id": "1", "text": SPANISH, "model": "vader"}]
+    result = logic.run(rows, {"weak_models": "vader"})
+    assert result.findings[0]["severity"] == "high"
+    assert result.summary["weak_model_hits"] == 1
+
+
+def test_malformed_options_never_raise_from_run():
+    rows = [{"id": "1", "text": SPANISH, "model": "vader"}]
+    for options in (
+        {"weak_models": 42},
+        {"weak_models": ["ok", 7, None]},
+        {"min_confidence": "not-a-number"},
+        {"min_confidence": None},
+        {"min_confidence": float("nan")},
+        {"min_confidence": 5.0},
+    ):
+        result = logic.run(rows, options)
+        assert result.status == "success"
+        assert result.summary["result_schema_version"] == "1.1"
+        assert result.summary["min_confidence"] == 0.2

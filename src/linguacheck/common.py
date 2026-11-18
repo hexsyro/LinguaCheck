@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3}
+RESULT_SCHEMA_VERSION = "1.1"
 
 
 @dataclass
@@ -158,18 +160,92 @@ def as_naive(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=None) if value.tzinfo is not None else value
 
 
-def opt_float(options: dict, key: str, default: float) -> float:
-    try:
-        return float(options.get(key, default))
-    except (TypeError, ValueError):
+def opt_float(
+    options: dict,
+    key: str,
+    default: float,
+    *,
+    low: float | None = None,
+    high: float | None = None,
+) -> float:
+    """Coerce an option to a finite float, falling back on ``default``.
+
+    Optional ``low``/``high`` bounds reject values outside the supported range.
+    Malformed values (including booleans and NaN) never raise.
+    """
+    value = options.get(key, default)
+    if isinstance(value, bool):
         return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(number):
+        return default
+    if low is not None and number < low:
+        return default
+    if high is not None and number > high:
+        return default
+    return number
 
 
 def opt_int(options: dict, key: str, default: int) -> int:
-    try:
-        return int(options.get(key, default))
-    except (TypeError, ValueError):
+    value = options.get(key, default)
+    if isinstance(value, bool):
         return default
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def opt_list(options: dict, key: str, default: list[str] | None = None) -> list[str]:
+    """Coerce an option to a list of strings without iterating characters.
+
+    A bare string is treated as one item (not one item per character). Any
+    other unsupported type falls back to ``default`` rather than raising.
+    """
+    fallback = list(default or [])
+    value = options.get(key)
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        return [value] if value.strip() else fallback
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [as_str(item) for item in value if as_str(item)]
+    return fallback
+
+
+def validate_options(options: dict[str, Any]) -> list[str]:
+    """Return clear error messages for options with invalid value types.
+
+    The CLI uses this to exit 2 before analysis; ``run()`` stays defensive via
+    the ``opt_*`` helpers so library callers never see an exception either.
+    """
+    errors: list[str] = []
+    if "weak_models" in options:
+        value = options["weak_models"]
+        if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
+            errors.append(
+                "invalid config value for 'weak_models': expected a list of strings "
+                f"(got {type(value).__name__})"
+            )
+    if "min_confidence" in options:
+        value = options["min_confidence"]
+        number: float | None = None
+        if not isinstance(value, bool):
+            try:
+                candidate = float(value)
+            except (TypeError, ValueError, OverflowError):
+                candidate = None
+            if candidate is not None and math.isfinite(candidate):
+                number = candidate
+        if number is None or not 0.0 <= number <= 1.0:
+            errors.append(
+                "invalid config value for 'min_confidence': expected a number between 0 and 1 "
+                f"(got {value!r})"
+            )
+    return errors
 
 
 # ---------------------------------------------------------------------------

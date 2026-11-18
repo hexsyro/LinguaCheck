@@ -80,7 +80,24 @@ LANG_NAMES: dict[str, str] = {
     "albanian": "sq", "icelandic": "is", "serbian": "sr", "macedonian": "mk",
     "belarusian": "be", "bengali": "bn", "tamil": "ta",
     "telugu": "te", "gujarati": "gu", "kannada": "kn", "malayalam": "ml",
-    "punjabi": "pa", "sinhala": "si",
+    "punjabi": "pa", "sinhala": "si", "urdu": "ur", "hungarian": "hu",
+}
+
+# ISO-639-3 (plus the common ISO-639-2/B forms such as ``ger``/``slo``) codes
+# seen in real model/language metadata. Without this table a naive ``code[:2]``
+# fallback turns ``jpn`` into ``jp`` and silently misses the mismatch.
+ISO639_3_TO_1: dict[str, str] = {
+    "eng": "en", "spa": "es", "fra": "fr", "fre": "fr", "ger": "de", "deu": "de",
+    "ita": "it", "por": "pt", "nld": "nl", "dut": "nl",
+    "jpn": "ja", "tur": "tr", "swe": "sv", "pol": "pl", "ces": "cs", "cze": "cs",
+    "dan": "da", "rus": "ru", "zho": "zh", "chi": "zh", "kor": "ko", "ara": "ar",
+    "heb": "he", "ell": "el", "gre": "el", "tha": "th", "hin": "hi", "ben": "bn",
+    "urd": "ur", "vie": "vi", "ind": "id", "mal": "ms", "msa": "ms", "ukr": "uk",
+    "ron": "ro", "rum": "ro", "hun": "hu", "fin": "fi", "nor": "no", "slo": "sk",
+    "slk": "sk", "slv": "sl", "lit": "lt", "lav": "lv", "est": "et", "sqi": "sq",
+    "alb": "sq", "isl": "is", "ice": "is", "cat": "ca", "glg": "gl", "cym": "cy",
+    "wel": "cy", "gle": "ga", "eus": "eu", "baq": "eu", "afr": "af", "swa": "sw",
+    "tgl": "tl", "hrv": "hr", "bul": "bg", "srp": "sr", "mkd": "mk", "bel": "be",
 }
 
 # Languages treated as low-resource in v1: they are supported by the detector
@@ -166,10 +183,16 @@ def _score_stopwords(text: str, table: dict[str, frozenset[str]]) -> str:
 
 
 def _rank_stopwords(text: str, table: dict[str, frozenset[str]]) -> list[tuple[str, int]]:
+    """Rank languages by stopword hits, keeping only languages with evidence.
+
+    Zero-hit languages are not runner-ups: they never had a vote in the first
+    place, so including them would inflate the reported margin.
+    """
     words = set(_WORD_RE.findall(text.lower()))
     if not words:
         return []
     scored = [(lang, len(words & stopwords)) for lang, stopwords in table.items()]
+    scored = [(lang, hits) for lang, hits in scored if hits > 0]
     scored.sort(key=lambda item: -item[1])
     return scored
 
@@ -189,8 +212,8 @@ def detect_language_scored(text: str) -> tuple[str, str, float, str, float]:
     """Detect language with a calibrated confidence score.
 
     Returns ``(code, script, confidence, runner_up, margin)`` where
-    ``confidence`` blends stopword coverage with the margin between the best
-    and second-best candidate, and ``margin`` is the normalized score gap.
+    ``confidence`` blends stopword coverage with the best-vs-runner-up gap,
+    and ``margin`` is the raw hit difference (0 when no runner-up exists).
     Script-level evidence (CJK, Arabic, …) carries high confidence on its own.
     """
     if not text or not text.strip():
@@ -237,17 +260,31 @@ def detect_language_scored(text: str) -> tuple[str, str, float, str, float]:
 def _latin_confidence(
     text: str, ranked: list[tuple[str, int]]
 ) -> tuple[float, str, float]:
-    """Confidence from stopword coverage and best-vs-runner-up margin."""
+    """Confidence from stopword coverage and best-vs-runner-up margin.
+
+    ``margin`` is the raw hit difference (0 when there is no runner-up). The
+    confidence blend uses a normalized dominance so a sole candidate with 2+
+    hits is still trusted, but short texts are capped: a couple of stopwords
+    is not much evidence when the whole record is only one or two words.
+    """
     words = _WORD_RE.findall(text.lower())
     if not ranked or not words:
         return 0.0, "", 0.0
     _top, top_hits = ranked[0]
-    runner_up, runner_hits = ranked[1] if len(ranked) > 1 else ("", 0)
+    if len(ranked) > 1:
+        runner_up, runner_hits = ranked[1]
+        margin = float(top_hits - runner_hits)
+        dominance = min(1.0, margin / top_hits)
+    else:
+        runner_up, runner_hits = "", 0
+        margin = 0.0
+        dominance = 1.0
     if top_hits == 0:
         return 0.15, runner_up, 0.0
-    margin = (top_hits - runner_hits) / top_hits
-    coverage = min(1.0, top_hits / max(len(words), 1) * 4.0)
-    confidence = coverage * (0.5 + 0.5 * margin)
+    coverage = min(1.0, top_hits / max(1, len(words)) * 2.0)
+    confidence = coverage * (0.5 + 0.5 * dominance)
+    if len(words) < 4:
+        confidence = min(confidence, 0.85)
     return round(min(1.0, confidence), 3), runner_up, round(margin, 3)
 
 
@@ -255,17 +292,100 @@ _MIXED_SPLIT = re.compile(r"[.?!;\n]+")
 
 _STOPWORDS_BY_CODE = {"latin": LATIN_STOPWORDS, "cyrillic": CYRILLIC_STOPWORDS}
 
+_CJK_SCRIPTS = frozenset({"hiragana", "katakana", "hangul", "cjk"})
+_SCRIPT_LANGUAGE: dict[str, str] = {
+    **_SCRIPT_LANG,
+    "devanagari": "hi",
+    "arabic": "ar",
+    "hebrew": "he",
+    "greek": "el",
+    "thai": "th",
+}
+_MIN_SCRIPT_RUN = 2
 
-def detect_code_switching(text: str, script: str) -> list[str]:
-    """Languages used confidently in different sentences of one text.
 
-    Returns the sorted language codes when two or more languages each score
-    2+ stopword hits in different sentences — the signal that a single-language
-    sentiment model is insufficient. Latin and Cyrillic scripts only in v1.
+def _char_script(char: str) -> str:
+    """Script name for one alphabetic character, or '' for separators/emoji."""
+    if not char.isalpha():
+        return ""
+    for name, ranges in _SCRIPTS:
+        if _in_ranges(char, ranges):
+            return name
+    return ""
+
+
+def _script_runs(text: str) -> list[tuple[str, str, set[str]]]:
+    """Group text into consecutive same-family script runs.
+
+    Returns ``(family, chunk, raw_scripts)`` triples. Kana, hangul and Han are
+    one ``cjk`` family so a Japanese sentence does not look like a zh/ja switch.
     """
+    runs: list[tuple[str, str, set[str]]] = []
+    family = ""
+    chars: list[str] = []
+    raw: set[str] = set()
+    for char in text:
+        script = _char_script(char)
+        current_family = "cjk" if script in _CJK_SCRIPTS else script
+        if not current_family:
+            # Spaces and punctuation belong to the surrounding run; only a
+            # different script actually ends it.
+            if family:
+                chars.append(char)
+            continue
+        if current_family == family:
+            chars.append(char)
+            raw.add(script)
+            continue
+        if family and chars:
+            runs.append((family, "".join(chars), raw))
+        family = current_family
+        chars = [char]
+        raw = {script}
+    if family and chars:
+        runs.append((family, "".join(chars), raw))
+    return runs
+
+
+def _cjk_language(raw_scripts: set[str]) -> str:
+    if raw_scripts & {"hiragana", "katakana"}:
+        return "ja"
+    if "hangul" in raw_scripts:
+        return "ko"
+    return "zh"
+
+
+def _script_switch_languages(text: str) -> list[str]:
+    """Languages evidenced by transitions between Unicode scripts in ``text``."""
+    found: set[str] = set()
+    for family, chunk, raw_scripts in _script_runs(text):
+        if len(chunk) < _MIN_SCRIPT_RUN:
+            continue
+        if family == "cjk":
+            found.add(_cjk_language(raw_scripts))
+        elif family == "latin":
+            ranked = _rank_stopwords(chunk, LATIN_STOPWORDS)
+            if ranked and ranked[0][1] >= 1:
+                found.add(ranked[0][0])
+        elif family == "cyrillic":
+            ranked = _rank_stopwords(chunk, CYRILLIC_STOPWORDS)
+            found.add(ranked[0][0] if ranked else "ru")
+        elif family in _SCRIPT_LANGUAGE:
+            found.add(_SCRIPT_LANGUAGE[family])
+    return sorted(found)
+
+
+def _chunked_stopword_switch(text: str, script: str) -> list[str]:
+    """Original sentence-chunk stopword fallback for a single script."""
     table = _STOPWORDS_BY_CODE.get(script)
     if table is None:
-        return []
+        counts, _emoji = _script_counts(text)
+        if counts.get("latin", 0) > 0:
+            table = LATIN_STOPWORDS
+        elif counts.get("cyrillic", 0) > 0:
+            table = CYRILLIC_STOPWORDS
+        else:
+            return []
     chunks = [c for c in _MIXED_SPLIT.split(text) if len(c.split()) >= 3]
     if len(chunks) < 2:
         return []
@@ -278,16 +398,85 @@ def detect_code_switching(text: str, script: str) -> list[str]:
     return sorted(found) if len(found) >= 2 else []
 
 
+def detect_code_switching(text: str, script: str = "") -> list[str]:
+    """Languages used confidently in different parts of one text.
+
+    Script transitions (Latin/Cyrillic/Greek/Arabic/Devanagari/CJK/…) are the
+    primary signal; the sentence-chunk stopword scorer remains as a fallback
+    for texts that stay inside one script (``en / es`` in Latin script, etc.).
+    """
+    languages = _script_switch_languages(text)
+    return languages if len(languages) >= 2 else _chunked_stopword_switch(text, script)
+
+
+def language_distribution(text: str) -> dict[str, float]:
+    """Per-language shares of one record (rounding to three decimals).
+
+    Decisive scripts are counted in characters. Latin text is assigned word by
+    word: a stopword shared by several languages goes to the record's strongest
+    language, so a Spanish sentence isn't quietly reported as 60% Catalan.
+    Returns an empty dict when there is no evidence at all.
+    """
+    if not text or not text.strip():
+        return {}
+    counts, _emoji = _script_counts(text)
+    weights: dict[str, float] = {}
+
+    if counts.get("latin", 0):
+        ranked = _rank_stopwords(text, LATIN_STOPWORDS)
+        if ranked:
+            preferred = ranked[0][0]
+            eligible = {lang for lang, hits in ranked if hits >= 2}
+            for word in _WORD_RE.findall(text.lower()):
+                candidates = [
+                    lang
+                    for lang, stops in LATIN_STOPWORDS.items()
+                    if word in stops and (lang in eligible or lang == preferred)
+                ]
+                if candidates:
+                    lang = preferred if preferred in candidates else candidates[0]
+                    weights[lang] = weights.get(lang, 0.0) + 1
+        else:
+            weights["en"] = weights.get("en", 0.0) + counts["latin"]
+    if counts.get("cyrillic", 0):
+        weights["ru"] = weights.get("ru", 0.0) + counts["cyrillic"]
+
+    cjk_total = sum(counts.get(script, 0) for script in _CJK_SCRIPTS)
+    if cjk_total:
+        if counts.get("hiragana", 0) or counts.get("katakana", 0):
+            language = "ja"
+        elif counts.get("hangul", 0):
+            language = "ko"
+        else:
+            language = "zh"
+        weights[language] = weights.get(language, 0.0) + cjk_total
+    for script, count in counts.items():
+        if script in _CJK_SCRIPTS or script in {"latin", "cyrillic"}:
+            continue
+        language = _SCRIPT_LANGUAGE.get(script)
+        if language:
+            weights[language] = weights.get(language, 0.0) + count
+
+    total = sum(weights.values())
+    if total <= 0:
+        return {}
+    ranked = sorted(weights.items(), key=lambda item: -item[1])
+    return {lang: round(weight / total, 3) for lang, weight in ranked}
+
+
 def normalize_lang(value: str) -> str:
-    """Map a messy language label (``English``, ``eng``, ``pt-BR``) to a code."""
+    """Map a messy language label (``English``, ``eng``, ``pt-BR``) to a code.
+
+    Language names, ISO-639-1 codes and the common ISO-639-3/2 codes are all
+    understood before the last-resort two-letter truncation.
+    """
     code = re.sub(r"[^a-zA-Z]", "", value).strip().lower()
     if not code:
         return "unknown"
     if code in LANG_NAMES:
         return LANG_NAMES[code]
-    if len(code) >= 3 and code in {"eng", "spa", "fra", "ger", "ita", "por", "nld", "deu"}:
-        return {
-            "eng": "en", "spa": "es", "fra": "fr", "ger": "de", "deu": "de",
-            "ita": "it", "por": "pt", "nld": "nl",
-        }[code]
+    if len(code) == 2:
+        return code
+    if code in ISO639_3_TO_1:
+        return ISO639_3_TO_1[code]
     return code[:2] if len(code) >= 2 else "unknown"
