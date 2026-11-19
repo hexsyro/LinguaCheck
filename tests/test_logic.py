@@ -174,12 +174,14 @@ def test_summary_skipped_when_all_rows_low_confidence():
 
 
 def test_mismatch_and_code_switching_produce_two_findings():
-    rows = [{
-        "id": "mixed",
-        "text": "The product is good. El producto es bueno.",
-        "model": "vader",
-        "model_language": "es",
-    }]
+    rows = [
+        {
+            "id": "mixed",
+            "text": "The product is good. El producto es bueno.",
+            "model": "vader",
+            "model_language": "es",
+        }
+    ]
     result = logic.run(rows, {})
     kinds = [finding["metadata"]["finding_kind"] for finding in result.findings]
     assert kinds == ["language_mismatch", "code_switching"]
@@ -195,12 +197,14 @@ def test_weak_model_finding_kind():
 
 
 def test_language_distribution_summary_and_finding_metadata():
-    rows = [{
-        "id": "mixed",
-        "text": "The product is good. El producto es bueno.",
-        "model": "vader",
-        "model_language": "es",
-    }]
+    rows = [
+        {
+            "id": "mixed",
+            "text": "The product is good. El producto es bueno.",
+            "model": "vader",
+            "model_language": "es",
+        }
+    ]
     result = logic.run(rows, {})
     entries = [entry for entry in result.summary["language_distribution"] if entry["record_id"] == "mixed"]
     assert {entry["lang"] for entry in entries} == {"en", "es"}
@@ -239,7 +243,11 @@ def test_coverage_matrix_actions_and_risk():
     ]
     matrix = {(entry["detected"], entry["assumed"]): entry for entry in logic.run(rows, {}).summary["coverage_matrix"]}
     assert matrix[("es", "en")] == {
-        "detected": "es", "assumed": "en", "count": 1, "risk": "medium", "action": "reroute",
+        "detected": "es",
+        "assumed": "en",
+        "count": 1,
+        "risk": "medium",
+        "action": "reroute",
     }
     assert matrix[("ja", "en")]["risk"] == "high"
     assert matrix[("ja", "en")]["action"] == "translate-then-score"

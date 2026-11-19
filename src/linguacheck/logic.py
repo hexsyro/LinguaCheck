@@ -85,9 +85,7 @@ class LinguaCheckLogic:
     def run(self, rows: list[dict], options: dict[str, Any] | None = None) -> ToolResult:
         options = options or {}
         weak_models = {name.lower() for name in opt_list(options, "weak_models", WEAK_MODELS) if name}
-        min_confidence = opt_float(
-            options, "min_confidence", DEFAULT_MIN_CONFIDENCE, low=0.0, high=1.0
-        )
+        min_confidence = opt_float(options, "min_confidence", DEFAULT_MIN_CONFIDENCE, low=0.0, high=1.0)
 
         findings: list[dict] = []
         warnings: list[str] = []
@@ -171,8 +169,7 @@ class LinguaCheckLogic:
                     )
                 else:
                     message = (
-                        f"Detected '{detected}' but scored with an '{assumed}'-tuned model"
-                        f" ({model or 'unknown'})."
+                        f"Detected '{detected}' but scored with an '{assumed}'-tuned model ({model or 'unknown'})."
                     )
                 metadata = {
                     **common_metadata,
@@ -180,7 +177,11 @@ class LinguaCheckLogic:
                 }
                 row_findings.append(
                     self._finding(
-                        severity, "model_language", message, row, metadata,
+                        severity,
+                        "model_language",
+                        message,
+                        row,
+                        metadata,
                         finding_kind="language_mismatch",
                     )
                 )
@@ -199,7 +200,11 @@ class LinguaCheckLogic:
                 }
                 row_findings.append(
                     self._finding(
-                        severity, "model_language", message, row, metadata,
+                        severity,
+                        "model_language",
+                        message,
+                        row,
+                        metadata,
                         finding_kind="weak_model",
                     )
                 )
@@ -242,9 +247,7 @@ class LinguaCheckLogic:
                 findings.extend(row_findings)
 
         if checked == 0:
-            warnings.append(
-                "No rows carried a text field (text, content, message, body, tweet, review)."
-            )
+            warnings.append("No rows carried a text field (text, content, message, body, tweet, review).")
         if skipped_low_confidence:
             warnings.append(
                 f"{skipped_low_confidence} row(s) skipped due to low confidence: "

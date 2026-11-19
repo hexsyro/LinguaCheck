@@ -227,8 +227,7 @@ def validate_options(options: dict[str, Any]) -> list[str]:
         value = options["weak_models"]
         if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
             errors.append(
-                "invalid config value for 'weak_models': expected a list of strings "
-                f"(got {type(value).__name__})"
+                f"invalid config value for 'weak_models': expected a list of strings (got {type(value).__name__})"
             )
     if "min_confidence" in options:
         value = options["min_confidence"]
@@ -242,8 +241,7 @@ def validate_options(options: dict[str, Any]) -> list[str]:
                 number = candidate
         if number is None or not 0.0 <= number <= 1.0:
             errors.append(
-                "invalid config value for 'min_confidence': expected a number between 0 and 1 "
-                f"(got {value!r})"
+                f"invalid config value for 'min_confidence': expected a number between 0 and 1 (got {value!r})"
             )
     return errors
 

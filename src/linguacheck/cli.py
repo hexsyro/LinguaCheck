@@ -47,8 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--weak-models",
         metavar="LIST",
-        help="comma-separated model names to treat as known-weak "
-        "(default: vader, afinn, textblob, and friends)",
+        help="comma-separated model names to treat as known-weak (default: vader, afinn, textblob, and friends)",
     )
     parser.add_argument(
         "--min-confidence",

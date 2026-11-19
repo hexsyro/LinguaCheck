@@ -121,13 +121,48 @@ def test_code_switching_needs_two_sentences():
 
 def test_normalize_lang_iso639_3_codes():
     expected = {
-        "jpn": "ja", "tur": "tr", "swe": "sv", "pol": "pl", "ces": "cs", "dan": "da",
-        "nld": "nl", "rus": "ru", "zho": "zh", "kor": "ko", "ara": "ar", "heb": "he",
-        "ell": "el", "tha": "th", "hin": "hi", "ben": "bn", "urd": "ur", "vie": "vi",
-        "ind": "id", "mal": "ms", "ukr": "uk", "ron": "ro", "hun": "hu", "fin": "fi",
-        "nor": "no", "slo": "sk", "slk": "sk", "slv": "sl", "lit": "lt", "lav": "lv",
-        "est": "et", "sqi": "sq", "isl": "is", "cat": "ca", "glg": "gl", "cym": "cy",
-        "gle": "ga", "eus": "eu", "afr": "af", "swa": "sw", "tgl": "tl", "hrv": "hr",
+        "jpn": "ja",
+        "tur": "tr",
+        "swe": "sv",
+        "pol": "pl",
+        "ces": "cs",
+        "dan": "da",
+        "nld": "nl",
+        "rus": "ru",
+        "zho": "zh",
+        "kor": "ko",
+        "ara": "ar",
+        "heb": "he",
+        "ell": "el",
+        "tha": "th",
+        "hin": "hi",
+        "ben": "bn",
+        "urd": "ur",
+        "vie": "vi",
+        "ind": "id",
+        "mal": "ms",
+        "ukr": "uk",
+        "ron": "ro",
+        "hun": "hu",
+        "fin": "fi",
+        "nor": "no",
+        "slo": "sk",
+        "slk": "sk",
+        "slv": "sl",
+        "lit": "lt",
+        "lav": "lv",
+        "est": "et",
+        "sqi": "sq",
+        "isl": "is",
+        "cat": "ca",
+        "glg": "gl",
+        "cym": "cy",
+        "gle": "ga",
+        "eus": "eu",
+        "afr": "af",
+        "swa": "sw",
+        "tgl": "tl",
+        "hrv": "hr",
     }
     for code, language in expected.items():
         assert normalize_lang(code) == language, code
@@ -135,9 +170,7 @@ def test_normalize_lang_iso639_3_codes():
 
 
 def test_runner_up_ignores_zero_hit_languages():
-    _code, _script, _confidence, runner_up, margin = detect_language_scored(
-        "the and el los que para"
-    )
+    _code, _script, _confidence, runner_up, margin = detect_language_scored("the and el los que para")
     assert runner_up == "en"
     assert margin == 2.0
 
@@ -153,9 +186,7 @@ def test_short_text_confidence_is_capped():
     assert code == "en"
     assert 0.2 <= confidence <= 0.85
 
-    longer_confidence = detect_language_scored(
-        "the and of to that is in you for it this with are"
-    )[2]
+    longer_confidence = detect_language_scored("the and of to that is in you for it this with are")[2]
     assert longer_confidence > confidence
 
 
